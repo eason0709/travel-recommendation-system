@@ -1,4 +1,4 @@
-# Travel Recommendation System Ver1 create at 20260511 0233
+# Travel Recommendation System
 
 本專案是一個以旅遊行為資料為基礎的推薦系統示範。系統會先產生模擬使用者資料與景點資料，接著使用 Gaussian Mixture Model 進行 soft clustering，最後根據使用者所屬 cluster 的平均行為特徵推薦適合的旅遊景點。
 
@@ -38,20 +38,20 @@ generate_data
 
 說明：
 
-| 檔案                             | 功能                                                     |
-| -------------------------------- | -------------------------------------------------------- |
-| `generate_data.py`               | 產生模擬使用者旅遊行為資料                               |
+| 檔案 | 功能 |
+|---|---|
+| `generate_data.py` | 產生模擬使用者旅遊行為資料 |
 | `cluster_interpretation_soft.py` | 使用 GMM 進行 soft clustering，並輸出 cluster 解釋與模型 |
-| `generate_attractions.py`        | 產生模擬景點資料                                         |
-| `generate_user_interactions.py`  | 根據使用者與景點相似度產生模擬互動紀錄                   |
-| `recommendation_engine.py`       | 產生推薦候選清單與 Top-K 推薦結果                        |
-| `evaluate_clusters.py`           | 比較不同推薦方法的效果                                   |
-| `analyze_data.py`                | 選配，用於資料分布與相關係數分析                         |
-| `app.py`                         | Streamlit 網頁介面                                       |
+| `generate_attractions.py` | 產生模擬景點資料 |
+| `generate_user_interactions.py` | 根據使用者與景點相似度產生模擬互動紀錄 |
+| `recommendation_engine.py` | 產生推薦候選清單與 Top-K 推薦結果 |
+| `evaluate_clusters.py` | 比較不同推薦方法的效果 |
+| `analyze_data.py` | 選配，用於資料分布與相關係數分析 |
+| `app.py` | Streamlit 網頁介面 |
 
 ---
 
-## Installation 我還沒試過 先別自己亂試 lol
+## Installation
 
 建議使用 Python 虛擬環境。
 
@@ -164,11 +164,11 @@ figures/soft_cluster_confidence_distribution.png
 
 其中：
 
-| 欄位                      | 說明                                |
-| ------------------------- | ----------------------------------- |
-| `soft_cluster`            | 使用者最可能所屬的 cluster          |
+| 欄位 | 說明 |
+|---|---|
+| `soft_cluster` | 使用者最可能所屬的 cluster |
 | `soft_cluster_confidence` | 該使用者被分到此 cluster 的信心分數 |
-| `cluster_prob_i`          | 使用者屬於第 i 個 cluster 的機率    |
+| `cluster_prob_i` | 使用者屬於第 i 個 cluster 的機率 |
 
 注意：如果你的檔名目前是 `cluster_interpretation_soft.py.py`，建議改成：
 
@@ -256,13 +256,13 @@ data/user_interactions.csv
 
 輸出欄位包含：
 
-| 欄位            | 說明                         |
-| --------------- | ---------------------------- |
-| `user_id`       | 使用者 ID                    |
-| `soft_cluster`  | 使用者所屬 cluster           |
-| `attraction_id` | 景點 ID                      |
-| `rating`        | 模擬評分                     |
-| `clicked`       | 是否點擊，rating >= 4 時為 1 |
+| 欄位 | 說明 |
+|---|---|
+| `user_id` | 使用者 ID |
+| `soft_cluster` | 使用者所屬 cluster |
+| `attraction_id` | 景點 ID |
+| `rating` | 模擬評分 |
+| `clicked` | 是否點擊，rating >= 4 時為 1 |
 
 注意：目前程式中 `DEBUG_MODE = True`，因此只會使用部分使用者與景點進行測試。若要使用完整資料，請將程式中的設定改成：
 
@@ -297,13 +297,13 @@ data/recommendations.csv
 
 系統會計算多種分數：
 
-| 分數                   | 說明                                              |
-| ---------------------- | ------------------------------------------------- |
-| `personal_score`       | 使用者個人行為向量與景點向量的相似度              |
-| `cluster_score`        | 使用者所屬 cluster 平均行為向量與景點向量的相似度 |
-| `collaborative_score`  | 同 cluster 使用者對景點的平均 rating              |
-| `hybrid_score`         | personal、cluster、collaborative 的混合分數       |
-| `recommendation_score` | 最終推薦排序分數                                  |
+| 分數 | 說明 |
+|---|---|
+| `personal_score` | 使用者個人行為向量與景點向量的相似度 |
+| `cluster_score` | 使用者所屬 cluster 平均行為向量與景點向量的相似度 |
+| `collaborative_score` | 同 cluster 使用者對景點的平均 rating |
+| `hybrid_score` | personal、cluster、collaborative 的混合分數 |
+| `recommendation_score` | 最終推薦排序分數 |
 
 注意：目前程式中 `DEBUG_MODE = True`。若要跑完整資料，請將：
 
@@ -345,20 +345,20 @@ figures/recommendation_method_comparison.png
 
 比較方法包含：
 
-| 方法                 | 說明                                       |
-| -------------------- | ------------------------------------------ |
-| `personal_only`      | 只使用單一使用者行為向量推薦               |
-| `cluster_only`       | 只使用 cluster 平均行為向量推薦            |
-| `collaborative_only` | 只使用同 cluster 使用者的歷史互動推薦      |
-| `hybrid`             | 結合 personal、cluster、collaborative 推薦 |
+| 方法 | 說明 |
+|---|---|
+| `personal_only` | 只使用單一使用者行為向量推薦 |
+| `cluster_only` | 只使用 cluster 平均行為向量推薦 |
+| `collaborative_only` | 只使用同 cluster 使用者的歷史互動推薦 |
+| `hybrid` | 結合 personal、cluster、collaborative 推薦 |
 
 評估指標包含：
 
-| 指標                  | 說明                                       |
-| --------------------- | ------------------------------------------ |
-| `mean_similarity`     | Top-K 推薦景點與使用者行為向量的平均相似度 |
-| `random_baseline`     | 隨機推薦的平均相似度                       |
-| `recommendation_lift` | 推薦方法相對 random baseline 的提升幅度    |
+| 指標 | 說明 |
+|---|---|
+| `mean_similarity` | Top-K 推薦景點與使用者行為向量的平均相似度 |
+| `random_baseline` | 隨機推薦的平均相似度 |
+| `recommendation_lift` | 推薦方法相對 random baseline 的提升幅度 |
 
 ---
 
