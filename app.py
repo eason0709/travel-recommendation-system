@@ -96,6 +96,71 @@ attraction_features = [
 ]
 
 
+
+# =========================
+# Cluster Labels and Descriptions
+# =========================
+
+CLUSTER_LABELS = {
+    0: "低預算室內文化型",
+    1: "好天氣一般消費型",
+    2: "極高預算特殊型",
+    3: "自然景點導向型",
+    4: "熱門社交打卡型",
+    5: "高預算消費型",
+    6: "壞天氣室內備案型",
+    7: "拍照打卡型",
+}
+
+CLUSTER_DESCRIPTIONS = {
+    0: "預算偏低，不太偏好自然景點，較偏向室內、文化或熱門景點。",
+    1: "主要對應天氣較好的出遊情境，對熱門程度與拍照價值需求較低，稍微能接受較高消費。",
+    2: "主要由極高預算特徵區分出來，人數可能較少，其他旅遊偏好不一定明確。",
+    3: "明顯偏好自然景點，不太重視熱門程度、拍照價值或高消費景點。",
+    4: "偏好熱門景點，社交情境與拍照價值也偏高，適合朋友出遊或社群分享型推薦。",
+    5: "預算與可接受消費偏高，但不特別追求熱門、文化或美食價值。",
+    6: "較常對應天氣較差的情境，且室內偏好較高，適合雨天備案或室內活動。",
+    7: "最重視拍照價值，並且略偏好熱門與文化景點，適合視覺特色明顯的景點。",
+}
+
+FEATURE_DISPLAY_NAMES = {
+    "budget": "預算",
+    "available_time": "可用時間",
+    "weather_badness": "天氣不佳程度",
+    "social_context": "社交情境",
+    "fatigue": "疲勞程度",
+    "spontaneity": "隨興程度",
+    "selected_indoor_score": "室內偏好",
+    "selected_cost_level": "可接受消費",
+    "selected_photo_value": "拍照價值",
+    "selected_nature_value": "自然景點偏好",
+    "selected_culture_value": "文化景點偏好",
+    "selected_food_value": "美食偏好",
+    "selected_popularity": "熱門程度偏好",
+}
+
+
+def get_cluster_label(cluster_id):
+
+    return CLUSTER_LABELS.get(
+        int(cluster_id),
+        f"Cluster {int(cluster_id)}"
+    )
+
+
+def get_cluster_description(cluster_id):
+
+    return CLUSTER_DESCRIPTIONS.get(
+        int(cluster_id),
+        "目前尚未定義此 cluster 的人工語意解釋。"
+    )
+
+
+def format_cluster_title(cluster_id):
+
+    return f"Cluster {int(cluster_id)}：{get_cluster_label(cluster_id)}"
+
+
 # =========================
 # Helper Functions
 # =========================
@@ -393,31 +458,56 @@ else:
 
 st.subheader("使用者資訊")
 
+current_cluster_id = int(selected_user["soft_cluster"])
+current_cluster_label = get_cluster_label(current_cluster_id)
+current_cluster_description = get_cluster_description(current_cluster_id)
+
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
     st.metric(
         "Soft Cluster",
-        int(selected_user["soft_cluster"])
+        current_cluster_id
     )
 
 with col2:
+    st.metric(
+        "Cluster 類型",
+        current_cluster_label
+    )
+
+with col3:
     st.metric(
         "Cluster Confidence",
         f"{selected_user['soft_cluster_confidence']:.3f}"
     )
 
-with col3:
+with col4:
     st.metric(
         "Budget",
         f"{selected_user['budget']:.1f}"
     )
 
-with col4:
-    st.metric(
-        "Available Time",
-        f"{selected_user['available_time']:.1f}"
-    )
+st.markdown("### 決策系統判定結果")
+st.info(
+    f"目前系統判定此使用者屬於 **{format_cluster_title(current_cluster_id)}**。"
+    f"{current_cluster_description}"
+)
+
+cluster_summary_df = pd.DataFrame([
+    {
+        "cluster": current_cluster_id,
+        "cluster_label": current_cluster_label,
+        "confidence": float(selected_user["soft_cluster_confidence"]),
+        "description": current_cluster_description,
+    }
+])
+
+st.dataframe(
+    cluster_summary_df,
+    width="stretch",
+    hide_index=True
+)
 
 
 if manual_mode and cluster_probs is not None:
@@ -426,12 +516,26 @@ if manual_mode and cluster_probs is not None:
 
     prob_df = pd.DataFrame({
         "cluster": list(range(len(cluster_probs))),
+        "cluster_label": [
+            get_cluster_label(cluster_id)
+            for cluster_id in range(len(cluster_probs))
+        ],
         "probability": cluster_probs
     })
 
+    prob_df = prob_df.sort_values(
+        "probability",
+        ascending=False
+    )
+
     st.dataframe(
         prob_df,
-        width="stretch"
+        width="stretch",
+        hide_index=True
+    )
+
+    st.bar_chart(
+        prob_df.set_index("cluster_label")["probability"]
     )
 
 
@@ -541,23 +645,28 @@ st.subheader("Cluster 解釋")
 
 cluster_id = int(selected_user["soft_cluster"])
 
+st.markdown(f"### {format_cluster_title(cluster_id)}")
+st.write(get_cluster_description(cluster_id))
+
 if cluster_interpretation is not None:
 
     cluster_info = cluster_interpretation[
         cluster_interpretation["cluster"] == cluster_id
-    ]
+    ].copy()
 
     if len(cluster_info) > 0:
 
-        st.write(f"目前使用者屬於 Cluster {cluster_id}")
+        cluster_info["feature_name"] = cluster_info["feature"].map(
+            FEATURE_DISPLAY_NAMES
+        ).fillna(cluster_info["feature"])
 
         high_features = cluster_info[
             cluster_info["direction"] == "high"
-        ]
+        ].sort_values("z_mean", ascending=False)
 
         low_features = cluster_info[
             cluster_info["direction"] == "low"
-        ]
+        ].sort_values("z_mean", ascending=True)
 
         col1, col2 = st.columns(2)
 
@@ -566,8 +675,9 @@ if cluster_interpretation is not None:
             st.markdown("#### 高於平均的特徵")
 
             st.dataframe(
-                high_features[["feature", "z_mean"]],
-                width="stretch"
+                high_features[["feature_name", "feature", "z_mean"]],
+                width="stretch",
+                hide_index=True
             )
 
         with col2:
@@ -575,9 +685,14 @@ if cluster_interpretation is not None:
             st.markdown("#### 低於平均的特徵")
 
             st.dataframe(
-                low_features[["feature", "z_mean"]],
-                width="stretch"
+                low_features[["feature_name", "feature", "z_mean"]],
+                width="stretch",
+                hide_index=True
             )
+
+        st.caption(
+            "z_mean 是標準化後的群體平均值；正值代表相對整體偏高，負值代表相對整體偏低。"
+        )
 
     else:
 
