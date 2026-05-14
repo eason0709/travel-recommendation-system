@@ -86,6 +86,13 @@ matplotlib
 scikit-learn
 streamlit
 joblib
+pyarrow
+```
+
+如果執行 `streamlit run app.py` 或讀取 `models/soft_cluster_pipeline.pkl` 時出現 `ModuleNotFoundError: No module named 'pyarrow'`，請確認 `requirements.txt` 已加入 `pyarrow`，並重新執行：
+
+```bash
+pip install -r requirements.txt
 ```
 
 ---
@@ -169,6 +176,30 @@ figures/soft_cluster_confidence_distribution.png
 | `soft_cluster` | 使用者最可能所屬的 cluster |
 | `soft_cluster_confidence` | 該使用者被分到此 cluster 的信心分數 |
 | `cluster_prob_i` | 使用者屬於第 i 個 cluster 的機率 |
+
+
+### Cluster Label Interpretation
+
+本專案將 GMM 產生的 `cluster0` 到 `cluster7` 進一步轉換成較容易理解的旅遊族群名稱。這些名稱不是模型自動產生的標籤，而是根據 `data/soft_cluster_feature_mean.csv` 與 `data/soft_cluster_interpretation.csv` 中各 cluster 的特徵高低進行人工解釋。
+
+| Cluster | 中文名稱 | 主要意義 | 適合推薦方向 |
+|---:|---|---|---|
+| 0 | 低預算室內文化型 | 預算偏低，不太偏好自然景點，較偏向室內、文化或熱門景點 | 博物館、展覽館、室內文化景點、低成本熱門景點 |
+| 1 | 好天氣一般消費型 | 天氣壞度偏低，表示較常對應到好天氣出遊情境，但不特別追求拍照或熱門性 | 一般戶外行程、彈性景點、非打卡導向景點 |
+| 2 | 極高預算特殊型 | 預算明顯高於其他群，但其他旅遊偏好不明顯，屬於高預算特殊族群 | 高預算景點或需額外消費的行程 |
+| 3 | 自然景點導向型 | 自然偏好最高，不太重視熱門程度、拍照價值或高消費景點 | 公園、山區、海邊、步道、自然景觀 |
+| 4 | 熱門社交打卡型 | 熱門程度、社交情境與拍照價值偏高 | 熱門景點、朋友出遊景點、社群分享景點 |
+| 5 | 高預算消費型 | 預算與可接受消費程度偏高，但對文化、美食與熱門程度需求較低 | 高消費景點、付費體驗、彈性行程 |
+| 6 | 壞天氣室內備案型 | 天氣壞度最高，且室內偏好較高 | 雨天備案、商場、室內展覽、室內活動空間 |
+| 7 | 拍照打卡型 | 拍照價值最高，且熱門與文化價值略高 | 景觀漂亮、建築特色、文創園區、網美景點 |
+
+在 `app.py` 中，系統會將模型預測出的 cluster 編號轉換成上述中文名稱。例如模型輸出 `Cluster 7` 時，App 會顯示為：
+
+```text
+Cluster 7：拍照打卡型
+```
+
+同時，App 也會顯示該使用者屬於各個 cluster 的 soft probability，讓使用者看到模型判定並不是只有單一硬分類，而是帶有機率分布的決策結果。
 
 注意：如果你的檔名目前是 `cluster_interpretation_soft.py.py`，建議改成：
 
@@ -375,8 +406,11 @@ App 主要功能包含：
 - 手動輸入使用者條件
 - 使用既有使用者資料
 - 預測使用者 soft cluster
+- 顯示 cluster 編號與中文族群名稱
 - 顯示 cluster confidence
 - 顯示 cluster probability
+- 顯示決策系統判定結果
+- 顯示該 cluster 的文字解釋
 - 根據 cluster 平均行為特徵推薦景點
 - 顯示推薦結果解釋
 - 顯示 cluster 解釋
@@ -384,6 +418,16 @@ App 主要功能包含：
 - 顯示分析圖表
 
 目前 App 中的推薦邏輯主要採用 cluster-based 推薦，也就是使用者被分到某個 cluster 後，系統會使用該 cluster 的平均行為特徵與景點特徵做相似度比較。
+
+App 的決策系統會顯示以下資訊：
+
+| 顯示欄位 | 說明 |
+|---|---|
+| `cluster` | 模型判定的 cluster 編號 |
+| `cluster_label` | 人工命名後的旅遊族群名稱 |
+| `confidence` | 模型對該 cluster 的判定信心 |
+| `description` | 該 cluster 的旅遊偏好解釋 |
+| `probability table` | 使用者屬於各 cluster 的機率分布 |
 
 ---
 
@@ -488,6 +532,24 @@ figures/recommendation_method_comparison.png
     ↓
 app.py
 ```
+
+---
+
+## Current App Update
+
+目前版本已將 cluster 判定結果整合進 Streamlit App。使用者輸入條件後，系統不只會顯示推薦景點，也會先顯示模型如何判斷該使用者的旅遊偏好族群。
+
+主要更新內容：
+
+| 更新項目 | 說明 |
+|---|---|
+| Cluster 編號顯示 | 顯示模型預測出的 `Cluster 0` 到 `Cluster 7` |
+| Cluster 中文名稱 | 將 cluster 編號轉換成可理解的旅遊族群名稱 |
+| Cluster 解釋 | 顯示該族群的主要偏好與推薦方向 |
+| Soft probability | 顯示使用者屬於各 cluster 的機率分布 |
+| 決策系統區塊 | 在推薦結果前先呈現模型判定依據 |
+
+此更新讓系統輸出不再只是推薦清單，而是包含「使用者被判定成哪一類旅遊者」以及「為什麼適合推薦這些景點」的解釋資訊。
 
 ---
 
