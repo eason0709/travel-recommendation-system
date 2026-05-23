@@ -18,7 +18,7 @@ st.set_page_config(
 )
 
 st.title("旅遊地點推薦系統")
-st.caption("Unsupervised Clustering + Cluster-based Recommendation Demo")
+st.caption("Unsupervised Clustering + Personal / Cluster-based Recommendation Demo")
 
 
 # =========================
@@ -140,6 +140,88 @@ FEATURE_DISPLAY_NAMES = {
 }
 
 
+# 這些名稱不是外部真實景點資料，而是讓模擬景點能對應到較接近現實的場景名稱。
+# 原始 Attraction_XXX 仍保留作為內部 ID，避免和既有資料流程衝突。
+REALISTIC_SCENE_NAME_POOLS = {
+    "museum": [
+        "城市歷史博物館", "河岸美術館", "自然科學展示館", "地方文化博物館", "當代藝術展覽館",
+    ],
+    "nature_trail": [
+        "森林步道", "海岸觀景步道", "山區生態步道", "湖畔自然步道", "溪谷健行路線",
+    ],
+    "night_market": [
+        "在地夜市", "河岸觀光夜市", "老城小吃夜市", "車站商圈夜市", "廟口美食夜市",
+    ],
+    "cafe_street": [
+        "文青咖啡街", "老屋咖啡巷", "河岸咖啡街區", "文創甜點街", "巷弄咖啡聚落",
+    ],
+    "historic_area": [
+        "老街歷史街區", "古城文化街區", "傳統聚落保存區", "港町歷史街區", "紅磚建築街區",
+    ],
+    "shopping_mall": [
+        "大型購物中心", "車站百貨商圈", "室內娛樂商場", "複合式生活商場", "都會購物廣場",
+    ],
+    "park": [
+        "都會公園", "河濱公園", "森林公園", "親子休閒公園", "湖畔景觀公園",
+    ],
+    "temple": [
+        "百年古廟", "山城寺廟", "廟口文化廣場", "傳統信仰中心", "歷史寺院",
+    ],
+}
+
+
+def infer_primary_attraction_type(attraction_type):
+
+    if pd.isna(attraction_type):
+        return "unknown"
+
+    return str(attraction_type).split("+")[0]
+
+
+def build_realistic_scene_name(row):
+
+    if "realistic_scene_name" in row.index and pd.notna(row["realistic_scene_name"]):
+        return str(row["realistic_scene_name"])
+
+    attraction_type = row.get("attraction_type", "unknown")
+    primary_type = infer_primary_attraction_type(attraction_type)
+    pool = REALISTIC_SCENE_NAME_POOLS.get(primary_type, ["旅遊景點"])
+
+    try:
+        attraction_id = int(row.get("attraction_id", row.name))
+    except Exception:
+        attraction_id = int(row.name)
+
+    base_name = pool[attraction_id % len(pool)]
+
+    if "+" in str(attraction_type):
+        return f"{base_name} 複合景點 {attraction_id:03d}"
+
+    return f"{base_name} {attraction_id:03d}"
+
+
+def get_confidence_level(confidence):
+
+    confidence = float(confidence)
+
+    if confidence >= 0.70:
+        return (
+            "高信心",
+            "模型對此使用者所屬 cluster 的判定較明確，可主要依據目前 cluster 解讀推薦結果。"
+        )
+
+    if confidence >= 0.40:
+        return (
+            "中等信心",
+            "模型大致能判定使用者偏好，但仍建議參考 Soft Cluster Probability 中排名較高的其他 cluster。"
+        )
+
+    return (
+        "低信心",
+        "模型對單一 cluster 的判定不夠明確，表示使用者偏好可能分散於多個 cluster。建議不要只依賴目前 hard cluster 解釋。"
+    )
+
+
 def get_cluster_label(cluster_id):
 
     return CLUSTER_LABELS.get(
@@ -178,6 +260,46 @@ def cosine_similarity(a, b):
     return float(np.dot(a, b) / denom)
 
 
+def build_recommendation_row(spot, recommendation_score, personal_score=None, cluster_score=None):
+
+    row = {
+        "scene_name": build_realistic_scene_name(spot),
+        "name": spot["name"],
+        "attraction_type": spot["attraction_type"],
+        "recommendation_score": recommendation_score,
+        "cost_level": spot["cost_level"],
+        "indoor_score": spot["indoor_score"],
+        "photo_value": spot["photo_value"],
+        "nature_value": spot["nature_value"],
+        "culture_value": spot["culture_value"],
+        "food_value": spot["food_value"],
+        "popularity": spot["popularity"],
+        "estimated_time": spot["estimated_time"]
+    }
+
+    if personal_score is not None:
+        row["personal_score"] = personal_score
+
+    if cluster_score is not None:
+        row["cluster_score"] = cluster_score
+
+    return row
+
+
+def sort_top_k(rows, top_k):
+
+    result = pd.DataFrame(rows)
+
+    return (
+        result
+        .sort_values(
+            "recommendation_score",
+            ascending=False
+        )
+        .head(top_k)
+    )
+
+
 def get_cluster_only_recommendations(
     cluster_id,
     top_k,
@@ -192,37 +314,43 @@ def get_cluster_only_recommendations(
     for _, spot in attractions_df.iterrows():
 
         spot_vec = spot[attraction_features].values
+        score = cosine_similarity(cluster_vec, spot_vec)
 
-        score = cosine_similarity(
-            cluster_vec,
-            spot_vec
+        rows.append(
+            build_recommendation_row(
+                spot=spot,
+                recommendation_score=score,
+                cluster_score=score
+            )
         )
 
-        rows.append({
-            "name": spot["name"],
-            "attraction_type": spot["attraction_type"],
-            "cluster_score": score,
-            "recommendation_score": score,
-            "cost_level": spot["cost_level"],
-            "indoor_score": spot["indoor_score"],
-            "photo_value": spot["photo_value"],
-            "nature_value": spot["nature_value"],
-            "culture_value": spot["culture_value"],
-            "food_value": spot["food_value"],
-            "popularity": spot["popularity"],
-            "estimated_time": spot["estimated_time"]
-        })
+    return sort_top_k(rows, top_k)
 
-    result = pd.DataFrame(rows)
 
-    return (
-        result
-        .sort_values(
-            "recommendation_score",
-            ascending=False
+def get_personal_only_recommendations(
+    selected_user,
+    top_k,
+    attractions_df
+):
+
+    user_vec = selected_user[behavior_features].values.astype(float)
+
+    rows = []
+
+    for _, spot in attractions_df.iterrows():
+
+        spot_vec = spot[attraction_features].values.astype(float)
+        score = cosine_similarity(user_vec, spot_vec)
+
+        rows.append(
+            build_recommendation_row(
+                spot=spot,
+                recommendation_score=score,
+                personal_score=score
+            )
         )
-        .head(top_k)
-    )
+
+    return sort_top_k(rows, top_k)
 
 
 def predict_soft_cluster(input_data, cluster_model):
@@ -259,6 +387,14 @@ def predict_soft_cluster(input_data, cluster_model):
     return predicted_cluster, cluster_confidence, cluster_probs
 
 
+
+# 若 attractions.csv 是舊版資料，沒有 realistic_scene_name 欄位，App 會自動補上較接近現實場景的顯示名稱。
+if "realistic_scene_name" not in attractions.columns:
+    attractions["realistic_scene_name"] = attractions.apply(
+        build_realistic_scene_name,
+        axis=1
+    )
+
 # =========================
 # Cluster Behavior Prototype
 # =========================
@@ -281,6 +417,16 @@ top_k = st.sidebar.slider(
     min_value=1,
     max_value=10,
     value=5
+)
+
+recommendation_mode = st.sidebar.radio(
+    "Recommendation Mode",
+    options=["personal_only", "cluster_only"],
+    index=0,
+    help=(
+        "personal_only 直接使用個人行為向量與景點特徵計算相似度；"
+        "cluster_only 使用所屬 cluster 的平均行為特徵與景點特徵計算相似度。"
+    )
 )
 
 st.sidebar.header("使用者輸入方式")
@@ -509,6 +655,93 @@ st.dataframe(
     hide_index=True
 )
 
+confidence_level, confidence_message = get_confidence_level(
+    selected_user["soft_cluster_confidence"]
+)
+
+st.markdown("### 模型信心判讀")
+
+confidence_df = pd.DataFrame([
+    {
+        "confidence_level": confidence_level,
+        "confidence": float(selected_user["soft_cluster_confidence"]),
+        "interpretation": confidence_message,
+    }
+])
+
+st.dataframe(
+    confidence_df,
+    width="stretch",
+    hide_index=True
+)
+
+if confidence_level == "低信心":
+    st.warning(
+        "此使用者的 cluster confidence 較低。建議同時查看 Soft Cluster Probability 中的前幾個 cluster，"
+        "不要只把推薦結果解釋為單一 cluster 的偏好。"
+    )
+elif confidence_level == "中等信心":
+    st.info(
+        "此使用者仍可能同時具有其他 cluster 的偏好特徵。"
+    )
+
+st.markdown("### Cluster 計算流程說明")
+
+with st.expander("查看模型如何計算 Soft Cluster", expanded=False):
+
+    st.write(
+        "本系統的 cluster 不是人工規則直接分類，而是由 Gaussian Mixture Model 根據使用者行為特徵計算機率後決定。"
+    )
+
+    st.markdown(
+        """
+計算流程如下：
+
+1. 讀取使用者輸入特徵，例如 budget、available_time、weather_badness、fatigue、selected_indoor_score 等。
+2. 使用訓練時儲存的 imputer 補齊缺失值。
+3. 使用訓練時儲存的 StandardScaler 將不同尺度的欄位轉成標準化數值。
+4. 將標準化後的特徵輸入 GMM。
+5. GMM 計算使用者屬於每個 cluster 的 probability。
+6. probability 最高的 cluster 會被顯示為 Soft Cluster。
+7. 最高 probability 會被視為 Cluster Confidence。
+
+因此，畫面上的 cluster label 是模型輸出的機率結果，而不是單純用 if-else 規則指定。
+        """
+    )
+
+    st.write("模型實際使用的特徵：")
+
+    model_features_df = pd.DataFrame({
+        "feature": cluster_model["features"],
+        "feature_name": [
+            FEATURE_DISPLAY_NAMES.get(feature, feature)
+            for feature in cluster_model["features"]
+        ]
+    })
+
+    st.dataframe(
+        model_features_df,
+        width="stretch",
+        hide_index=True
+    )
+
+    if manual_mode and cluster_probs is not None:
+        top_prob_df = pd.DataFrame({
+            "cluster": list(range(len(cluster_probs))),
+            "cluster_label": [
+                get_cluster_label(cluster_id)
+                for cluster_id in range(len(cluster_probs))
+            ],
+            "probability": cluster_probs
+        }).sort_values("probability", ascending=False).head(3)
+
+        st.write("目前輸入最可能屬於的前三個 cluster：")
+        st.dataframe(
+            top_prob_df,
+            width="stretch",
+            hide_index=True
+        )
+
 
 if manual_mode and cluster_probs is not None:
 
@@ -569,15 +802,10 @@ st.dataframe(
 
 
 # =========================
-# Cluster-based Recommendation
+# Recommendation
 # =========================
 
-st.subheader("Cluster-based 推薦景點")
-
-st.info(
-    "目前推薦只使用使用者所屬 cluster 的平均行為特徵，"
-    "不直接用個人行為向量排序。"
-)
+st.subheader("推薦景點")
 
 cluster_id = int(selected_user["soft_cluster"])
 
@@ -586,23 +814,47 @@ if cluster_id not in cluster_behavior.index:
     st.warning("目前 cluster 不存在於 cluster_behavior 中，請重新確認模型與資料是否一致。")
     st.stop()
 
-user_recs = get_cluster_only_recommendations(
-    cluster_id=cluster_id,
-    top_k=top_k,
-    cluster_behavior=cluster_behavior,
-    attractions_df=attractions
-)
+if recommendation_mode == "personal_only":
 
-if len(user_recs) == 0:
+    st.info(
+        "目前使用 personal_only 推薦：直接比較使用者個人行為特徵向量與景點特徵向量。"
+        "這個模式通常會有較高的個人化相似度，但 cluster 解釋主要作為輔助說明。"
+    )
 
-    st.warning("此 cluster 沒有推薦結果。")
+    user_recs = get_personal_only_recommendations(
+        selected_user=selected_user,
+        top_k=top_k,
+        attractions_df=attractions
+    )
 
 else:
 
+    st.info(
+        "目前使用 cluster_only 推薦：比較使用者所屬 cluster 的平均行為特徵與景點特徵。"
+        "這個模式較適合展示分群語意與冷啟動情境，但個人化程度可能低於 personal_only。"
+    )
+
+    user_recs = get_cluster_only_recommendations(
+        cluster_id=cluster_id,
+        top_k=top_k,
+        cluster_behavior=cluster_behavior,
+        attractions_df=attractions
+    )
+
+if len(user_recs) == 0:
+
+    st.warning("目前沒有推薦結果。")
+
+else:
+
+    st.caption(f"目前 Recommendation Mode：{recommendation_mode}")
+
     display_cols = [
+        "scene_name",
         "name",
         "attraction_type",
         "recommendation_score",
+        "personal_score",
         "cluster_score",
         "cost_level",
         "indoor_score",
@@ -624,17 +876,32 @@ else:
         width="stretch"
     )
 
+    st.caption(
+        "scene_name 是為了展示用途產生的現實場景式名稱；name 保留為系統內部產生的景點代碼。"
+    )
+
     st.markdown("### 推薦結果解釋")
 
     for _, row in user_recs.iterrows():
 
-        with st.expander(f"{row['name']}"):
+        with st.expander(f"{row.get('scene_name', row['name'])}"):
 
+            st.write(f"場景名稱：{row.get('scene_name', row['name'])}")
+            st.write(f"內部名稱：{row['name']}")
             st.write(f"景點類型：{row.get('attraction_type', 'N/A')}")
-            st.write(f"Cluster Score：{row['cluster_score']:.4f}")
-            st.write(
-                "解釋：此推薦是將景點特徵向量與該 cluster 的平均行為特徵向量進行相似度比較。"
-            )
+            st.write(f"Recommendation Score：{row['recommendation_score']:.4f}")
+
+            if recommendation_mode == "personal_only":
+                st.write(f"Personal Score：{row['personal_score']:.4f}")
+                st.write(
+                    "解釋：此推薦是將使用者目前輸入或既有資料中的個人行為特徵向量，"
+                    "直接與景點特徵向量進行相似度比較。"
+                )
+            else:
+                st.write(f"Cluster Score：{row['cluster_score']:.4f}")
+                st.write(
+                    "解釋：此推薦是將景點特徵向量與該 cluster 的平均行為特徵向量進行相似度比較。"
+                )
 
 
 # =========================
@@ -769,9 +1036,10 @@ st.markdown(
 
 使用者輸入條件  
 → Soft Clustering  
-→ 得到 Cluster 與 Confidence  
-→ 使用 Cluster 平均行為特徵  
-→ Cluster-based 景點推薦  
+→ 得到 Cluster、Confidence 與 Probability  
+→ 判讀模型信心與可能的不確定性  
+→ 選擇 Recommendation Mode  
+→ personal_only 或 cluster_only 景點推薦  
 → 推薦方法比較
 """
 )

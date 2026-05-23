@@ -173,40 +173,103 @@ interpret_df.to_csv(
 # Heatmap
 # =========================
 
-plt.figure(figsize=(14, 8))
+from matplotlib.colors import TwoSlopeNorm
 
-plt.imshow(
-    cluster_summary,
-    aspect="auto",
-    cmap="coolwarm",
-    vmin=-2,
-    vmax=2
+
+def save_cluster_heatmap(cluster_summary, output_path):
+    """
+    Save an annotated red-blue heatmap for standardized cluster feature means.
+
+    Red: feature mean is higher than the overall average.
+    Blue: feature mean is lower than the overall average.
+    Number in each cell: exact z_mean value rounded to 2 decimals.
+    """
+
+    values = cluster_summary.values.astype(float)
+
+    # Use a symmetric range around zero so red/blue intensity is comparable.
+    max_abs_value = max(
+        2.0,
+        float(np.nanmax(np.abs(values)))
+    )
+
+    norm = TwoSlopeNorm(
+        vmin=-max_abs_value,
+        vcenter=0.0,
+        vmax=max_abs_value
+    )
+
+    fig_width = max(14, len(cluster_summary.columns) * 1.05)
+    fig_height = max(6, len(cluster_summary.index) * 0.75)
+
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+
+    im = ax.imshow(
+        values,
+        aspect="auto",
+        cmap="RdBu_r",
+        norm=norm
+    )
+
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.set_label("Standardized Mean Value (z_mean)")
+
+    ax.set_xticks(range(len(cluster_summary.columns)))
+    ax.set_xticklabels(
+        cluster_summary.columns,
+        rotation=45,
+        ha="right"
+    )
+
+    ax.set_yticks(range(len(cluster_summary.index)))
+    ax.set_yticklabels(cluster_summary.index)
+
+    ax.set_xlabel("Feature")
+    ax.set_ylabel("Soft Cluster")
+    ax.set_title("Soft Cluster Feature Mean Heatmap")
+
+    # Draw cell boundaries for readability.
+    ax.set_xticks(
+        np.arange(-0.5, len(cluster_summary.columns), 1),
+        minor=True
+    )
+    ax.set_yticks(
+        np.arange(-0.5, len(cluster_summary.index), 1),
+        minor=True
+    )
+    ax.grid(
+        which="minor",
+        color="white",
+        linestyle="-",
+        linewidth=0.8
+    )
+    ax.tick_params(which="minor", bottom=False, left=False)
+
+    # Add exact z_mean values inside cells.
+    for row_idx in range(values.shape[0]):
+        for col_idx in range(values.shape[1]):
+            value = values[row_idx, col_idx]
+            text_color = "white" if abs(value) >= max_abs_value * 0.45 else "black"
+
+            ax.text(
+                col_idx,
+                row_idx,
+                f"{value:.2f}",
+                ha="center",
+                va="center",
+                fontsize=8,
+                color=text_color
+            )
+
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
+save_cluster_heatmap(
+    cluster_summary=cluster_summary,
+    output_path="figures/soft_cluster_feature_heatmap.png"
 )
-
-plt.colorbar()
-
-plt.xticks(
-    range(len(features)),
-    features,
-    rotation=45,
-    ha="right"
-)
-
-plt.yticks(
-    range(len(cluster_summary.index)),
-    cluster_summary.index
-)
-
-plt.title("Soft Cluster Feature Mean Heatmap")
-
-plt.tight_layout()
-
-plt.savefig(
-    "figures/soft_cluster_feature_heatmap.png",
-    dpi=300
-)
-
-plt.show()
 
 # =========================
 # Confidence distribution
