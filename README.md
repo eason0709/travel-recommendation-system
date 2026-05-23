@@ -174,6 +174,7 @@ python cluster_interpretation_soft.py
 data/travel_behavior_soft_clustered.csv
 data/soft_cluster_feature_mean.csv
 data/soft_cluster_interpretation.csv
+data/soft_cluster_label_summary.csv
 models/soft_cluster_pipeline.pkl
 figures/soft_cluster_feature_heatmap.png
 figures/soft_cluster_confidence_distribution.png
@@ -346,18 +347,31 @@ App 功能包含:
 
 ## Cluster Labels
 
-| Cluster | 名稱 | 解釋 |
-|---:|---|---|
-| 0 | 低預算室內文化型 | 預算偏低，不太偏好自然景點，較偏向室內、文化或熱門景點 |
-| 1 | 好天氣一般消費型 | 多對應天氣較好的出遊情境，對熱門與拍照需求較低 |
-| 2 | 極高預算特殊型 | 主要由極高預算特徵區分，其他偏好不一定明確 |
-| 3 | 自然景點導向型 | 明顯偏好自然景點，不太重視熱門程度或高消費景點 |
-| 4 | 熱門社交打卡型 | 偏好熱門景點，社交情境與拍照價值偏高 |
-| 5 | 高預算消費型 | 預算與可接受消費偏高，但不一定追求熱門、文化或美食 |
-| 6 | 壞天氣室內備案型 | 天氣較差時偏向室內景點，適合雨天備案 |
-| 7 | 拍照打卡型 | 重視拍照價值，並略偏好熱門與文化景點 |
+本專案不再在 README 內固定寫死 `cluster 0~7` 的中文名稱。原因是 GMM 每次重新訓練或資料生成邏輯調整後，cluster 編號可能重新排列。例如某次結果中 `cluster 0` 的 `budget` 標準化平均值可能偏高，此時若仍把它寫成「低預算型」就會和 heatmap 衝突。
 
-這些 cluster 名稱是根據標準化後的 cluster feature mean 人工命名，並不是模型自動產生的語意標籤。
+目前 cluster label 由 `cluster_interpretation_soft.py` 根據當次產生的 `data/soft_cluster_feature_mean.csv` 自動推論，並輸出到:
+
+```text
+data/soft_cluster_label_summary.csv
+```
+
+該檔案包含:
+
+| 欄位 | 說明 |
+|---|---|
+| `cluster` | cluster 編號 |
+| `cluster_label` | 根據目前標準化特徵平均值推論出的中文名稱 |
+| `description` | 根據高於平均與低於平均特徵產生的說明 |
+| `top_high_features` | 該 cluster 最高的幾個 z_mean 特徵 |
+| `top_low_features` | 該 cluster 最低的幾個 z_mean 特徵 |
+
+App 會優先讀取 `data/soft_cluster_label_summary.csv` 來顯示 cluster 名稱與說明。因此，若重新執行 clustering，請重新執行:
+
+```bash
+python cluster_interpretation_soft.py
+```
+
+這樣 App 與 heatmap 會使用同一份 clustering 結果，避免 cluster label 和 heatmap 數值不一致。
 
 ---
 

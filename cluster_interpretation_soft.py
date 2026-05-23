@@ -169,6 +169,154 @@ interpret_df.to_csv(
     encoding="utf-8-sig"
 )
 
+
+# =========================
+# Data-driven cluster labels
+# =========================
+
+FEATURE_DISPLAY_NAMES = {
+    "budget": "預算",
+    "available_time": "可用時間",
+    "weather_badness": "天氣不佳程度",
+    "social_context": "社交情境",
+    "fatigue": "疲勞程度",
+    "spontaneity": "隨興程度",
+    "selected_indoor_score": "室內偏好",
+    "selected_cost_level": "可接受消費",
+    "selected_photo_value": "拍照價值",
+    "selected_nature_value": "自然景點偏好",
+    "selected_culture_value": "文化景點偏好",
+    "selected_food_value": "美食偏好",
+    "selected_popularity": "熱門程度偏好",
+}
+
+
+def readable_feature(feature):
+    return FEATURE_DISPLAY_NAMES.get(feature, feature)
+
+
+def infer_cluster_label(row):
+    """Infer a readable cluster label from the current standardized feature means.
+
+    The label is generated from the current clustering result, not from a fixed
+    manual mapping. This prevents conflicts such as a cluster being called
+    low-budget while its standardized budget mean is high.
+    """
+
+    row = row.astype(float)
+    high_feature = row.idxmax()
+    high_value = float(row.max())
+    low_feature = row.idxmin()
+    low_value = float(row.min())
+
+    budget = float(row.get("budget", 0.0))
+    weather = float(row.get("weather_badness", 0.0))
+    indoor = float(row.get("selected_indoor_score", 0.0))
+    cost = float(row.get("selected_cost_level", 0.0))
+    photo = float(row.get("selected_photo_value", 0.0))
+    nature = float(row.get("selected_nature_value", 0.0))
+    culture = float(row.get("selected_culture_value", 0.0))
+    food = float(row.get("selected_food_value", 0.0))
+    popularity = float(row.get("selected_popularity", 0.0))
+
+    # Very strong budget signal should be named first, because budget can dominate
+    # the cluster interpretation.
+    if budget >= 1.0:
+        if cost >= 0.25:
+            return "高預算高消費型"
+        return "高預算特殊型"
+
+    if budget <= -0.8:
+        if nature <= -0.25 and indoor >= 0.10:
+            return "低預算室內型"
+        return "低預算彈性型"
+
+    if weather >= 0.9:
+        if indoor >= 0.10:
+            return "壞天氣室內備案型"
+        return "壞天氣情境型"
+
+    if weather <= -0.7:
+        return "好天氣出遊型"
+
+    if nature >= 0.8:
+        return "自然景點導向型"
+
+    if photo >= 0.8:
+        return "拍照打卡型"
+
+    if popularity >= 0.8:
+        if photo >= 0.25 or float(row.get("social_context", 0.0)) >= 0.15:
+            return "熱門社交打卡型"
+        return "熱門景點導向型"
+
+    if culture >= 0.8:
+        return "文化探索型"
+
+    if food >= 0.8:
+        return "美食導向型"
+
+    if indoor >= 0.8:
+        return "室內活動偏好型"
+
+    if cost >= 0.8:
+        return "高消費偏好型"
+
+    # Fallback: use the strongest high and low features so the label still follows data.
+    return f"{readable_feature(high_feature)}偏高型"
+
+
+def infer_cluster_description(row):
+    row = row.astype(float)
+    high = row.sort_values(ascending=False).head(3)
+    low = row.sort_values(ascending=True).head(3)
+
+    high_text = "、".join(
+        f"{readable_feature(feature)}({value:.2f})"
+        for feature, value in high.items()
+    )
+    low_text = "、".join(
+        f"{readable_feature(feature)}({value:.2f})"
+        for feature, value in low.items()
+    )
+
+    return (
+        "此標籤由目前 clustering 後的標準化特徵平均值自動推論。"
+        f"主要高於平均的特徵為：{high_text}。"
+        f"主要低於平均的特徵為：{low_text}。"
+    )
+
+
+def build_cluster_label_summary(cluster_summary):
+    rows = []
+    for cluster_id, row in cluster_summary.iterrows():
+        rows.append({
+            "cluster": int(cluster_id),
+            "cluster_label": infer_cluster_label(row),
+            "description": infer_cluster_description(row),
+            "top_high_features": "; ".join(
+                f"{feature}:{value:.3f}"
+                for feature, value in row.sort_values(ascending=False).head(5).items()
+            ),
+            "top_low_features": "; ".join(
+                f"{feature}:{value:.3f}"
+                for feature, value in row.sort_values(ascending=True).head(5).items()
+            ),
+        })
+    return pd.DataFrame(rows)
+
+
+cluster_label_summary = build_cluster_label_summary(cluster_summary)
+cluster_label_summary.to_csv(
+    "data/soft_cluster_label_summary.csv",
+    index=False,
+    encoding="utf-8-sig"
+)
+
+print()
+print("Data-driven Cluster Labels:")
+print(cluster_label_summary[["cluster", "cluster_label"]])
+
 # =========================
 # Heatmap
 # =========================
@@ -311,7 +459,8 @@ joblib.dump(
         "imputer": imputer,
         "scaler": scaler,
         "gmm": gmm,
-        "cluster_summary": cluster_summary
+        "cluster_summary": cluster_summary,
+        "cluster_label_summary": cluster_label_summary
     },
     "models/soft_cluster_pipeline.pkl"
 )
@@ -321,4 +470,5 @@ print("Saved:")
 print("data/travel_behavior_soft_clustered.csv")
 print("data/soft_cluster_feature_mean.csv")
 print("data/soft_cluster_interpretation.csv")
+print("data/soft_cluster_label_summary.csv")
 print("models/soft_cluster_pipeline.pkl")

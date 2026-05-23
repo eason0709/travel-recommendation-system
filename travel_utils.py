@@ -60,27 +60,78 @@ FEATURE_DISPLAY_NAMES = {
     "selected_popularity": "熱門程度偏好",
 }
 
-CLUSTER_LABELS = {
-    0: "低預算室內文化型",
-    1: "好天氣一般消費型",
-    2: "極高預算特殊型",
-    3: "自然景點導向型",
-    4: "熱門社交打卡型",
-    5: "高預算消費型",
-    6: "壞天氣室內備案型",
-    7: "拍照打卡型",
-}
+# Fallback only. The current cluster labels should be generated from
+# data/soft_cluster_label_summary.csv by cluster_interpretation_soft.py.
+# This prevents fixed labels from conflicting with the heatmap after re-running GMM.
+CLUSTER_LABELS = {}
+CLUSTER_DESCRIPTIONS = {}
 
-CLUSTER_DESCRIPTIONS = {
-    0: "預算偏低，不太偏好自然景點，較偏向室內、文化或熱門景點。",
-    1: "主要對應天氣較好的出遊情境，對熱門程度與拍照價值需求較低，稍微能接受較高消費。",
-    2: "主要由極高預算特徵區分出來，人數可能較少，其他旅遊偏好不一定明確。",
-    3: "明顯偏好自然景點，不太重視熱門程度、拍照價值或高消費景點。",
-    4: "偏好熱門景點，社交情境與拍照價值也偏高，適合朋友出遊或社群分享型推薦。",
-    5: "預算與可接受消費偏高，但不特別追求熱門、文化或美食價值。",
-    6: "較常對應天氣較差的情境，且室內偏好較高，適合雨天備案或室內活動。",
-    7: "最重視拍照價值，並且略偏好熱門與文化景點，適合視覺特色明顯的景點。",
-}
+
+def load_cluster_label_summary(path: str | Path = DATA_DIR / "soft_cluster_label_summary.csv") -> pd.DataFrame | None:
+    path = Path(path)
+    if not path.exists():
+        return None
+    return pd.read_csv(path)
+
+
+def infer_cluster_label_from_row(row: pd.Series) -> str:
+    row = row.astype(float)
+    budget = float(row.get("budget", 0.0))
+    weather = float(row.get("weather_badness", 0.0))
+    indoor = float(row.get("selected_indoor_score", 0.0))
+    cost = float(row.get("selected_cost_level", 0.0))
+    photo = float(row.get("selected_photo_value", 0.0))
+    nature = float(row.get("selected_nature_value", 0.0))
+    culture = float(row.get("selected_culture_value", 0.0))
+    food = float(row.get("selected_food_value", 0.0))
+    popularity = float(row.get("selected_popularity", 0.0))
+
+    if budget >= 1.0:
+        return "高預算高消費型" if cost >= 0.25 else "高預算特殊型"
+    if budget <= -0.8:
+        return "低預算室內型" if nature <= -0.25 and indoor >= 0.10 else "低預算彈性型"
+    if weather >= 0.9:
+        return "壞天氣室內備案型" if indoor >= 0.10 else "壞天氣情境型"
+    if weather <= -0.7:
+        return "好天氣出遊型"
+    if nature >= 0.8:
+        return "自然景點導向型"
+    if photo >= 0.8:
+        return "拍照打卡型"
+    if popularity >= 0.8:
+        return "熱門社交打卡型" if photo >= 0.25 else "熱門景點導向型"
+    if culture >= 0.8:
+        return "文化探索型"
+    if food >= 0.8:
+        return "美食導向型"
+    if indoor >= 0.8:
+        return "室內活動偏好型"
+    if cost >= 0.8:
+        return "高消費偏好型"
+    return f"{FEATURE_DISPLAY_NAMES.get(row.idxmax(), row.idxmax())}偏高型"
+
+
+def infer_cluster_description_from_row(row: pd.Series) -> str:
+    row = row.astype(float)
+    high = row.sort_values(ascending=False).head(3)
+    low = row.sort_values(ascending=True).head(3)
+    high_text = "、".join(f"{FEATURE_DISPLAY_NAMES.get(k, k)}({v:.2f})" for k, v in high.items())
+    low_text = "、".join(f"{FEATURE_DISPLAY_NAMES.get(k, k)}({v:.2f})" for k, v in low.items())
+    return f"此標籤由目前 clustering 後的標準化特徵平均值自動推論。主要高於平均的特徵為：{high_text}。主要低於平均的特徵為：{low_text}。"
+
+
+def build_cluster_label_summary(cluster_summary: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for cluster_id, row in cluster_summary.iterrows():
+        rows.append({
+            "cluster": int(cluster_id),
+            "cluster_label": infer_cluster_label_from_row(row),
+            "description": infer_cluster_description_from_row(row),
+            "top_high_features": "; ".join(f"{k}:{v:.3f}" for k, v in row.sort_values(ascending=False).head(5).items()),
+            "top_low_features": "; ".join(f"{k}:{v:.3f}" for k, v in row.sort_values(ascending=True).head(5).items()),
+        })
+    return pd.DataFrame(rows)
+
 
 ATTRACTION_PROFILES = {
     "museum": [4.6, 2.8, 3.8, 0.5, 4.8, 1.2, 3.2, 2.5],
@@ -179,11 +230,23 @@ def add_scene_names(attractions: pd.DataFrame) -> pd.DataFrame:
 
 
 def cluster_label(cluster_id: int) -> str:
-    return CLUSTER_LABELS.get(int(cluster_id), f"Cluster {int(cluster_id)}")
+    cluster_id = int(cluster_id)
+    label_summary = load_cluster_label_summary()
+    if label_summary is not None and "cluster_label" in label_summary.columns:
+        matched = label_summary[label_summary["cluster"].astype(int) == cluster_id]
+        if len(matched) > 0:
+            return str(matched.iloc[0]["cluster_label"])
+    return CLUSTER_LABELS.get(cluster_id, f"Cluster {cluster_id}（尚未產生資料驅動標籤）")
 
 
 def cluster_description(cluster_id: int) -> str:
-    return CLUSTER_DESCRIPTIONS.get(int(cluster_id), "目前尚未定義此 cluster 的人工語意解釋。")
+    cluster_id = int(cluster_id)
+    label_summary = load_cluster_label_summary()
+    if label_summary is not None and "description" in label_summary.columns:
+        matched = label_summary[label_summary["cluster"].astype(int) == cluster_id]
+        if len(matched) > 0:
+            return str(matched.iloc[0]["description"])
+    return CLUSTER_DESCRIPTIONS.get(cluster_id, "目前尚未產生此 cluster 的資料驅動語意解釋。請先執行 cluster_interpretation_soft.py。")
 
 
 def cluster_title(cluster_id: int) -> str:
