@@ -9,19 +9,17 @@ venv/
 .venv/
 env/
 
-# OS files
+# Environment variables
+.env
+
+# Generated project outputs
+data/
+figures/
+models/
+
+# System files
 .DS_Store
 Thumbs.db
 
-# Editor settings
-.vscode/
-.idea/
-
 # Jupyter
 .ipynb_checkpoints/
-
-# Streamlit local config
-.streamlit/
-
-# Logs
-*.log
